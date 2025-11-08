@@ -19,7 +19,7 @@ if(WIN32)
         ws2_32      # Winsock
         ntdll       # NT API
         advapi32    # Registry & Security
-        tlhelp32    # Toolhelp (Process enumeration)
+        # Note: tlhelp32.h functions are in kernel32.lib (automatically linked)
     )
 
     # Options de compilation pour éviter les warnings
