@@ -1,46 +1,47 @@
-cmake_minimum_required(VERSION 3.10)
-project(ClientApp C)
+cmake_minimum_required(VERSION 3.25)
+project(TinyLoader CXX)
 
-# Définit le standard C
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
+# C++23 standard
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Ajoute les fichiers sources
-add_executable(client
-    client.c
+# Include directories
+include_directories(${CMAKE_SOURCE_DIR}/src)
+
+# === SERVER (Cross-platform) ===
+add_executable(server
+    src/server/main.cpp
+    src/server/server.cpp
+    src/core/packet.cpp
+    src/core/session.cpp
+    src/core/encryption.cpp
+    src/handlers/opcode_handler.cpp
 )
 
-# Inclut le dossier courant pour accéder à common.h
-target_include_directories(client PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+# === CLIENT (Cross-platform) ===
+add_executable(client
+    src/client/main.cpp
+    src/client/client.cpp
+    src/core/packet.cpp
+    src/core/session.cpp
+    src/core/encryption.cpp
+)
 
-# Bibliothèques Windows requises
+# Platform-specific libraries
 if(WIN32)
-    target_link_libraries(client
-        ws2_32      # Winsock
-        ntdll       # NT API
-        advapi32    # Registry & Security
-        # Note: tlhelp32.h functions are in kernel32.lib (automatically linked)
-    )
-
-    # Options de compilation pour éviter les warnings
-    target_compile_options(client PRIVATE /W3)
+    target_link_libraries(server ws2_32)
+    target_link_libraries(client ws2_32)
+else()
+    target_link_libraries(server pthread)
+    target_link_libraries(client pthread)
 endif()
 
-# === SERVEUR (Linux/Unix) ===
-# Compile uniquement sur les plateformes Unix-like
-if(UNIX)
-    add_executable(server
-        server.c
-    )
-
-    # Inclut le dossier courant pour accéder à common.h
-    target_include_directories(server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-
-    # Bibliothèques Linux requises
-    target_link_libraries(server
-        pthread     # POSIX threads
-    )
-
-    # Options de compilation
-    target_compile_options(server PRIVATE -Wall -Wextra)
+# Compiler warnings
+if(MSVC)
+    target_compile_options(server PRIVATE /W4 /permissive-)
+    target_compile_options(client PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(server PRIVATE -Wall -Wextra -pedantic)
+    target_compile_options(client PRIVATE -Wall -Wextra -pedantic)
 endif()

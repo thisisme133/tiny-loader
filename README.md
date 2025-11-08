@@ -1,358 +1,289 @@
-# Tiny Loader - Binary Packet System
+# TinyLoader - Modern C++23 Client/Server
 
-Projet éducatif démontrant un système de communication client-serveur sécurisé sans CRT, avec chiffrement et streaming de données.
+Serveur et client réseau moderne en **C++23 pur**, avec système de paquets binaires, multi-threading, handlers d'opcodes et encryption de session. **Aucune bibliothèque externe** (seulement STL).
 
-## Architecture
+## 🚀 Caractéristiques
 
-### Client (Windows)
-- `client.c` - Client anti-cheat avec détections anti-debug/anti-VM
-- Support du chiffrement à 2 clés
-- Streaming de gros fichiers (images, binaires)
-- Pas de CRT (no malloc, no stdlib, no string.h)
+### Architecture
+- ✅ **C++23** - Utilise std::print, concepts, std::span, etc.
+- ✅ **Multi-threaded** - std::jthread pour chaque client
+- ✅ **Cross-platform** - Windows (WinSock) et Linux (sockets POSIX)
+- ✅ **Header-only** - Implémentation dans les headers pour performance
+- ✅ **Aucune lib externe** - 100% STL
 
-### Serveur (Linux/Unix)
-- `server.c` - Serveur multi-threadé avec pthread
-- Monitoring des heartbeats avec timeout
-- Réception et traitement des paquets binaires
-- Bannissement automatique basé sur trust factor
+### Système de Paquets
+- Format binaire compact : `[opcode:2][size:4][data:variable]`
+- Sérialisation/Désérialisation automatique
+- Lecture/Écriture typée avec `packet.write<T>()` / `packet.read<T>()`
+- Big-endian pour compatibilité réseau
 
-## Système de Paquets
+### Encryption
+- Clé de session unique par client (32 bytes)
+- XOR encryption symétrique sur le payload
+- Échange de clé automatique à la connexion
+- Header non-encrypté (opcode + size) pour parsing
 
-### Architecture Binaire (packet.h)
+### Handlers d'Opcodes
+- Système modulaire d'enregistrement de handlers
+- `OpcodeHandler::instance().register_handler(opcode, func)`
+- Handlers côté serveur ET client
+- Gestion d'erreurs automatique
 
-Remplace JSON par une structure binaire compacte :
-
-```c
-typedef struct {
-    unsigned char seq;                      // Numéro de séquence
-    unsigned char id;                       // Type de paquet
-    unsigned short message_len;             // Taille du message
-    char session_id[11];                    // ID de session
-    unsigned char message[512];             // Données (chiffrées)
-} BinaryPacket;
-```
-
-### Types de Paquets
-
-| ID | Nom | Description |
-|----|-----|-------------|
-| 0x00 | MESSAGE | Message texte générique |
-| 0x01 | HWID | Demande de HWID |
-| 0x02 | HWID_RESP | Réponse HWID |
-| 0x03 | SESSION | Session établie |
-| 0x04 | LOGIN_REQ | Requête de login |
-| 0x05 | LOGIN_RESP | Réponse de login |
-| 0x06 | SECURITY_REPORT | Rapport de sécurité (anti-debug/VM) |
-| 0x07 | BAN | Bannissement client |
-| 0x08 | GAME_SELECT | Sélection de jeu |
-| 0x09 | IMAGE | Transfert d'image/binaire |
-| 0x0A | FUNCTION_REQUEST | Requête de fonction |
-| 0x0B | FUNCTION_BYTES | Bytes de fonction |
-
-## Chiffrement à 2 Clés
-
-Inspiré du système original avec XOR alterné :
-
-```c
-// Encryption
-encrypt_message(data, &len);
-// Format: [k1][encrypted_data][k2]
-
-// Decryption
-decrypt_message(data, &len);
-```
-
-### Algorithme
-
-1. **Génération des clés** : 2 bytes aléatoires (k1, k2) via RDRAND ou RDTSC
-2. **XOR alterné** : `data[i] ^= (i % 2) ? k1 : k2`
-3. **Insertion clés** : k1 au début, k2 à la fin
-4. **Décryption** : Inverse (extraction clés, XOR alterné)
-
-## Intégrité des Paquets - CRC32
-
-Chaque paquet inclut un CRC32 à la fin pour détecter la corruption ou le tampering.
-
-### Format du Paquet sur le Réseau
+## 📦 Structure du Projet
 
 ```
-[seq][id][message_len][session_id][message][CRC32]
-  1    1       2           10       0-512      4   bytes
+tiny-loader/
+├── CMakeLists.txt              # Configuration CMake
+├── src/
+│   ├── core/
+│   │   ├── packet.hpp          # Système de paquets binaires
+│   │   ├── session.hpp         # Gestion session + socket
+│   │   ├── encryption.hpp      # Clé de session XOR
+│   │   ├── packet.cpp
+│   │   ├── session.cpp
+│   │   └── encryption.cpp
+│   ├── handlers/
+│   │   ├── opcode_handler.hpp  # Gestionnaire d'opcodes
+│   │   └── opcode_handler.cpp
+│   ├── server/
+│   │   ├── server.hpp          # Serveur multi-threaded
+│   │   ├── server.cpp
+│   │   └── main.cpp            # Point d'entrée serveur
+│   └── client/
+│       ├── client.hpp          # Client avec thread de réception
+│       ├── client.cpp
+│       └── main.cpp            # Point d'entrée client
+└── README.md
 ```
 
-### Fonctionnement
+## 🔧 Compilation
 
-**Côté Client** (envoi) :
-```c
-// CRC calculé automatiquement lors de la sérialisation
-BinaryPacket pkt;
-packet_create_write(&pkt, PKT_ID_MESSAGE, session, data, len);
-unsigned short size = packet_serialize(&pkt, buffer);  // CRC ajouté ici
-send(sock, buffer, size, 0);
-```
+### Prérequis
+- **Compilateur C++23** : GCC 13+, Clang 17+, ou MSVC 2022+
+- **CMake 3.25+**
 
-**Côté Serveur** (réception + vérification) :
-```c
-#include "server_packet_handler.h"
-
-BinaryPacket pkt;
-int crc_valid;
-
-int result = server_recv_packet_with_crc(socket, &pkt, &crc_valid);
-if(result == -1) {
-    // CRC invalide - paquet corrompu ou modifié
-    handle_crc_failure(socket, CRC_FAIL_DISCONNECT);
-} else if(result == 1 && crc_valid) {
-    // Paquet valide, traiter
-}
-```
-
-### Actions sur Échec CRC
-
-| Action | Description |
-|--------|-------------|
-| `CRC_FAIL_IGNORE` | Ignorer et continuer |
-| `CRC_FAIL_WARN` | Logger un avertissement |
-| `CRC_FAIL_DISCONNECT` | Déconnecter le client |
-| `CRC_FAIL_BAN` | Bannir le client (tampering détecté) |
-
-### Calcul CRC32
-
-Utilise le polynôme IEEE 802.3 (0xEDB88320) avec table de lookup précalculée :
-
-```c
-#include "crc32.h"
-
-// Calcul simple
-unsigned int crc = crc32_calculate(data, length);
-
-// Calcul incrémental (streaming)
-unsigned int crc = crc32_init();
-crc = crc32_update(crc, chunk1, len1);
-crc = crc32_update(crc, chunk2, len2);
-crc = crc32_finalize(crc);
-
-// Vérification
-int valid = crc32_verify(data, length, expected_crc);
-```
-
-### Statistiques de Paquets
-
-Le serveur peut monitorer les échecs CRC :
-
-```c
-PacketStats stats;
-packet_stats_init(&stats);
-
-// Après chaque réception
-packet_stats_update(&stats, result, crc_valid);
-
-// Afficher les stats
-packet_stats_print(&stats);
-// Output:
-// === Packet Statistics ===
-// Total packets: 1000
-// CRC failures: 5
-// Successful: 995
-// =========================
-```
-
-## Streaming de Données
-
-Pour transférer de gros fichiers (images, binaires > 512 bytes) :
-
-```c
-// Envoi
-client_stream_send(client, data, size);
-
-// Réception (allocation via VirtualAlloc/mmap)
-void* data = client_stream_recv(client, &size);
-```
-
-### Protocole de Streaming
-
-1. Envoi de la taille (4 bytes, network byte order)
-2. Transfert par chunks de 4KB
-3. Validation de la taille (max 100MB)
-
-## Exemples d'Utilisation
-
-### 1. Envoyer un paquet simple
-
-```c
-BinaryPacket pkt;
-char message[] = "Hello Server";
-packet_create_write(&pkt, PKT_ID_MESSAGE, session_id, message, sizeof(message));
-client_send_packet(&client, &pkt);
-```
-
-### 2. Rapport de sécurité
-
-```c
-SecurityReport report = {
-    .debugger_detected = 0,
-    .vm_detected = 0,
-    .trust_factor = 95.5f,
-    .uptime = 3600,
-    .checksum = 0x12345678
-};
-client_send_security_report(&client, &report);
-```
-
-### 3. Login
-
-```c
-LoginRequest login;
-// Remplir les champs (username, password, hwid, version)
-client_send_login(&client, &login);
-
-// Recevoir la réponse
-BinaryPacket response;
-client_recv_packet(&client, &response);
-```
-
-### 4. Streaming d'image
-
-```c
-// Envoi de 5MB
-unsigned char* image = VirtualAlloc(0, 5*1024*1024, MEM_COMMIT, PAGE_READWRITE);
-client_stream_send(&client, image, 5*1024*1024);
-
-// Réception
-unsigned int size;
-void* data = client_stream_recv(&client, &size);
-```
-
-## Structures de Données
-
-### ExtendedClient
-
-```c
-typedef struct {
-    void* socket_handle;
-    char session_id[11];
-    unsigned char state;
-    unsigned int hwid_result;
-    MapperData mapper;
-    GameData games[16];
-    GameData selected_game;
-} ExtendedClient;
-```
-
-### SecurityReport
-
-```c
-typedef struct {
-    unsigned char debugger_detected;
-    unsigned char vm_detected;
-    float trust_factor;
-    unsigned int uptime;
-    unsigned int checksum;
-} SecurityReport;
-```
-
-## États du Client
-
-| État | Valeur | Description |
-|------|--------|-------------|
-| CONNECTING | 0 | Connexion en cours |
-| IDLE | 1 | Connecté, en attente |
-| LOGGED_IN | 2 | Authentifié |
-| IMPORTS_READY | 3 | Imports prêts |
-| WAITING | 4 | En attente de données |
-| IMAGE_READY | 5 | Image reçue |
-| INJECTED | 6 | Injection effectuée |
-| BLACKLISTED | 7 | Client banni |
-
-## Résultats HWID
-
-| Code | Signification |
-|------|---------------|
-| 5671 | HWID_FAIL - Échec validation |
-| 4567 | HWID_BLACKLISTED - HWID banni |
-| 5472 | VERSION_MISMATCH - Version incorrecte |
-| 3247 | HWID_OK - Validation réussie |
-
-## Compilation
-
-### Client (Windows - MSVC)
-
+### Windows (MSVC)
 ```bash
 mkdir build && cd build
 cmake .. -G "Visual Studio 17 2022"
 cmake --build . --config Release
 ```
 
-### Serveur (Linux)
-
+### Linux/Unix
 ```bash
 mkdir build && cd build
 cmake ..
-make
+make -j$(nproc)
+```
+
+## 🎯 Utilisation
+
+### Lancer le Serveur
+```bash
 ./server
 ```
 
-## Sécurité
-
-Ce projet est **éducatif** et démontre :
-
-- ✅ Chiffrement XOR à 2 clés (éducatif, pas production)
-- ✅ **Intégrité CRC32** - Détection corruption/tampering
-- ✅ Détection anti-debug/anti-VM (9+6 techniques)
-- ✅ Trust factor et bannissement automatique
-- ✅ Communication binaire sans CRT
-- ✅ Streaming sécurisé avec validation de taille
-- ✅ Statistiques de paquets côté serveur
-
-### Protections Implémentées
-
-| Niveau | Protection | Implémentation |
-|--------|------------|----------------|
-| **Transport** | Intégrité | CRC32 (IEEE 802.3) |
-| **Application** | Chiffrement | XOR 2 clés alternées |
-| **Session** | Trust Factor | Score 0-100%, ban < 30% |
-| **Client** | Anti-debug | 9 techniques (PEB, timing, etc.) |
-| **Client** | Anti-VM | 6 techniques (CPUID, registre, etc.) |
-
-**Attention** : Ce code est destiné à l'apprentissage uniquement.
-
-## Fichiers
-
+Output :
 ```
-tiny-loader/
-├── CMakeLists.txt              # Configuration CMake
-├── common.h                    # Structures communes (legacy)
-├── crc32.h                     # Calcul CRC32 (IEEE 802.3)
-├── packet.h                    # Système de paquets binaires + CRC
-├── client_ext.h                # Extensions client (streaming, etc.)
-├── server_packet_handler.h     # Gestion serveur avec vérification CRC
-├── client.c                    # Client Windows
-├── server.c                    # Serveur Linux
-├── example_usage.c             # Exemples d'utilisation (11 exemples)
-└── README.md                   # Cette documentation
+=== TinyLoader Server (C++23) ===
+
+[Server] Handlers registered
+[Server] Listening on port 8888
 ```
 
-## Notes Techniques
+### Lancer le Client
+```bash
+./client
+```
 
-### Pas de CRT
+Output :
+```
+=== TinyLoader Client (C++23) ===
 
-Toutes les fonctions évitent la CRT :
-- Pas de `malloc/free` → VirtualAlloc/mmap
-- Pas de `strcpy/strlen` → Boucles manuelles
-- Pas de `printf` → write/OutputDebugString
-- Pas de `rand()` → RDRAND/RDTSC
+[Client] Handlers registered
+[Client] Connected to 127.0.0.1:8888
+[Client] Session key received and encryption enabled
+[Client] HELLO sent
+[Server says] Welcome to the server!
+[Client] Heartbeat #1 sent
+[Client] Heartbeat #2 sent
+...
+```
 
-### Compatibilité
+## 💻 Exemples de Code
 
-- **Client** : Windows x64, Visual Studio 2019+, privilèges admin requis
-- **Serveur** : Linux/Unix, gcc/clang, pthread
+### Créer un Paquet
 
-### Performance
+```cpp
+#include "core/packet.hpp"
 
-- Streaming : ~90 MB/s avec chunks de 4KB
-- Encryption : Négligeable (simple XOR)
-- Overhead paquet : 14 bytes (header + session)
+core::Packet packet(core::Opcode::DATA);
 
-## License
+// Écrire des données typées
+packet.write<uint32_t>(12345);
+packet.write<float>(3.14f);
+
+// Écrire un buffer
+std::string msg = "Hello";
+packet.write(std::span(reinterpret_cast<const uint8_t*>(msg.data()), msg.size()));
+
+// Sérialiser pour envoi
+auto bytes = packet.serialize();
+```
+
+### Lire un Paquet
+
+```cpp
+// Recevoir via session
+auto packet_opt = session.receive();
+if (packet_opt) {
+    auto& packet = *packet_opt;
+
+    // Lire données typées
+    uint32_t value = packet.read<uint32_t>();
+    float pi = packet.read<float>();
+
+    // Lire buffer
+    auto data = packet.read_bytes(5);
+    std::string msg(data.begin(), data.end());
+}
+```
+
+### Enregistrer un Handler
+
+```cpp
+#include "handlers/opcode_handler.hpp"
+
+void handle_custom_opcode(core::Session& session, core::Packet& packet) {
+    std::println("[Handler] Custom opcode received");
+
+    // Traiter le paquet
+    auto data = packet.read<uint32_t>();
+
+    // Répondre
+    core::Packet response(core::Opcode::DATA);
+    response.write<uint32_t>(data * 2);
+    session.send(response);
+}
+
+// Enregistrement
+handlers::OpcodeHandler::instance().register_handler(
+    core::Opcode::DATA,
+    handle_custom_opcode
+);
+```
+
+### Ajouter un Opcode
+
+```cpp
+// Dans packet.hpp
+enum class Opcode : uint16_t {
+    HELLO = 0x0001,
+    AUTH_REQUEST = 0x0002,
+    AUTH_RESPONSE = 0x0003,
+    HEARTBEAT = 0x0004,
+    DATA = 0x0005,
+    DISCONNECT = 0x0006,
+    MY_CUSTOM_OPCODE = 0x0100,  // ← Ajouter ici
+};
+```
+
+## 🔐 Encryption de Session
+
+### Côté Serveur
+```cpp
+// 1. Créer session (génère clé auto)
+auto session = std::make_unique<core::Session>(client_socket);
+
+// 2. Envoyer la clé au client
+core::Packet key_packet(core::Opcode::AUTH_RESPONSE);
+auto key_data = session->key().data();
+key_packet.write(std::span(key_data.begin(), key_data.end()));
+session->send(key_packet);  // Envoi sans encryption
+
+// 3. Activer encryption
+session->set_encrypted(true);
+```
+
+### Côté Client
+```cpp
+// 1. Recevoir la clé du serveur
+auto key_packet_opt = session->receive();
+auto& key_packet = *key_packet_opt;
+
+// 2. Extraire et appliquer la clé
+auto key_bytes = key_packet.read_bytes(core::SessionKey::KEY_SIZE);
+core::SessionKey new_key;
+new_key.set_key(std::span<const uint8_t, 32>(key_bytes.data(), 32));
+session->set_key(new_key);
+
+// 3. Activer encryption
+session->set_encrypted(true);
+```
+
+## 🧵 Multi-Threading
+
+### Serveur
+- Thread principal : `accept()` loop
+- 1 thread par client : `std::jthread` avec `std::stop_token`
+- Auto-cleanup : threads terminés automatiquement
+
+```cpp
+// Dans Server::accept_loop()
+client_threads_.emplace_back([this, client_socket]() {
+    handle_client(client_socket);
+});
+```
+
+### Client
+- Thread principal : envoi de paquets
+- Thread de réception : `std::jthread` dédié
+
+```cpp
+receive_thread_ = std::jthread([this](std::stop_token stoken) {
+    receive_loop(stoken);
+});
+```
+
+## 📊 Format de Paquet
+
+```
+┌─────────────┬──────────┬─────────────┐
+│  Opcode     │  Size    │    Data     │
+│  (2 bytes)  │ (4 bytes)│  (variable) │
+│  Big-endian │Big-endian│  Encrypted  │
+└─────────────┴──────────┴─────────────┘
+```
+
+- **Opcode** : Type de paquet (2 bytes, big-endian)
+- **Size** : Taille du payload (4 bytes, big-endian, max 1MB)
+- **Data** : Payload encrypté avec clé de session (XOR)
+
+## 🎓 Fonctionnalités C++23 Utilisées
+
+- `std::print` / `std::println` - I/O formaté moderne
+- `std::span` - Vues non-propriétaires sur mémoire
+- `std::jthread` - Threads avec stop_token auto
+- `concepts` / `requires` - Contraintes de templates
+- `std::optional` - Retours optionnels type-safe
+- `[[nodiscard]]` - Attributs de fonction
+- Range-based for avec init-statement
+
+## 📝 TODO / Extensions Possibles
+
+- [ ] Ajout de compression (zlib optionnelle)
+- [ ] Support IPv6
+- [ ] Rate limiting
+- [ ] Blacklist IP
+- [ ] Logs dans fichier
+- [ ] Statistiques réseau
+- [ ] Reconnexion automatique client
+- [ ] SSL/TLS (optionnel)
+
+## 📄 License
 
 Projet éducatif - Usage académique uniquement
+
+---
+
+**Note** : Ce projet démontre une architecture moderne C++23 pour un système client/serveur. Le chiffrement XOR est simple mais suffisant pour comprendre les concepts. Pour la production, utilisez TLS/SSL.
