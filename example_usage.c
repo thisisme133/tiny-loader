@@ -230,3 +230,117 @@ void example_encryption_test() {
     decrypt_message(data, &len);
     // Now data = "This is a secret message!", len = 25
 }
+
+// === EXAMPLE 9: CRC32 verification (server-side) ===
+
+#ifndef _WIN32
+#include "server_packet_handler.h"
+
+void example_server_crc_verification(int client_socket) {
+    BinaryPacket pkt;
+    int crc_valid;
+
+    // Receive packet with CRC verification
+    int result = server_recv_packet_with_crc(client_socket, &pkt, &crc_valid);
+
+    if(result == -1) {
+        // CRC verification failed - possible tampering
+        write(1, "[!] Packet rejected: CRC mismatch\n", 34);
+        // Take action: disconnect, ban, etc.
+        handle_crc_failure(client_socket, CRC_FAIL_DISCONNECT);
+    } else if(result == 0) {
+        // Receive error
+        write(1, "[!] Failed to receive packet\n", 29);
+    } else if(result == 1 && crc_valid) {
+        // Success! Process packet
+        write(1, "[+] Packet received and verified\n", 33);
+
+        // Process packet based on ID
+        if(pkt.id == PKT_ID_MESSAGE) {
+            write(1, "Message: ", 9);
+            write(1, pkt.message, pkt.message_len);
+            write(1, "\n", 1);
+        }
+    }
+}
+
+void example_server_statistics() {
+    PacketStats stats;
+    packet_stats_init(&stats);
+
+    // Simulate receiving packets
+    for(int i = 0; i < 100; i++) {
+        // result and crc_valid from server_recv_packet_with_crc
+        int result = 1;  // success
+        int crc_valid = (i % 10 != 0);  // 10% CRC failures
+
+        packet_stats_update(&stats, result, crc_valid);
+    }
+
+    // Print statistics
+    packet_stats_print(&stats);
+}
+#endif
+
+// === EXAMPLE 10: CRC32 calculation demo ===
+
+#include "crc32.h"
+
+void example_crc32_calculation() {
+    const unsigned char data[] = "Hello, World!";
+    unsigned int length = sizeof(data) - 1;
+
+    // Calculate CRC32
+    unsigned int crc = crc32_calculate(data, length);
+
+    // CRC will be: 0xEC4AC3D0 for "Hello, World!"
+    // (can verify with online CRC32 calculators)
+
+    // Incremental CRC calculation (for streaming)
+    unsigned int incremental_crc = crc32_init();
+    incremental_crc = crc32_update(incremental_crc, data, 5);      // "Hello"
+    incremental_crc = crc32_update(incremental_crc, data + 5, 8);  // ", World!"
+    incremental_crc = crc32_finalize(incremental_crc);
+
+    // incremental_crc should equal crc
+
+    // Verify CRC
+    int valid = crc32_verify(data, length, crc);  // Should return 1
+}
+
+// === EXAMPLE 11: Packet with CRC end-to-end ===
+
+void example_packet_with_crc() {
+    // Client side: create and send packet
+    BinaryPacket pkt;
+    char session[] = "TEST123456";
+    char message[] = "Secure message";
+
+    packet_create_write(&pkt, PKT_ID_MESSAGE, session, message, sizeof(message) - 1);
+
+    // Serialize (automatically adds CRC32)
+    unsigned char buffer[600];
+    unsigned short size = packet_serialize(&pkt, buffer);
+
+    // Size will be: 1 (seq) + 1 (id) + 2 (len) + 10 (session) + msg_len + 4 (CRC)
+    // = 18 + msg_len bytes
+
+    // Send buffer...
+    // send(sock, buffer, size, 0);
+
+    // Server side: receive and verify
+    BinaryPacket received;
+
+    // First, verify CRC on raw buffer
+    int crc_ok = packet_verify_crc(buffer, size);
+    if(!crc_ok) {
+        // Reject packet
+        return;
+    }
+
+    // CRC valid, parse packet
+    if(packet_read(&received, buffer, size)) {
+        // Packet received successfully
+        // received.message contains "Secure message"
+    }
+}

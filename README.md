@@ -69,6 +69,94 @@ decrypt_message(data, &len);
 3. **Insertion clés** : k1 au début, k2 à la fin
 4. **Décryption** : Inverse (extraction clés, XOR alterné)
 
+## Intégrité des Paquets - CRC32
+
+Chaque paquet inclut un CRC32 à la fin pour détecter la corruption ou le tampering.
+
+### Format du Paquet sur le Réseau
+
+```
+[seq][id][message_len][session_id][message][CRC32]
+  1    1       2           10       0-512      4   bytes
+```
+
+### Fonctionnement
+
+**Côté Client** (envoi) :
+```c
+// CRC calculé automatiquement lors de la sérialisation
+BinaryPacket pkt;
+packet_create_write(&pkt, PKT_ID_MESSAGE, session, data, len);
+unsigned short size = packet_serialize(&pkt, buffer);  // CRC ajouté ici
+send(sock, buffer, size, 0);
+```
+
+**Côté Serveur** (réception + vérification) :
+```c
+#include "server_packet_handler.h"
+
+BinaryPacket pkt;
+int crc_valid;
+
+int result = server_recv_packet_with_crc(socket, &pkt, &crc_valid);
+if(result == -1) {
+    // CRC invalide - paquet corrompu ou modifié
+    handle_crc_failure(socket, CRC_FAIL_DISCONNECT);
+} else if(result == 1 && crc_valid) {
+    // Paquet valide, traiter
+}
+```
+
+### Actions sur Échec CRC
+
+| Action | Description |
+|--------|-------------|
+| `CRC_FAIL_IGNORE` | Ignorer et continuer |
+| `CRC_FAIL_WARN` | Logger un avertissement |
+| `CRC_FAIL_DISCONNECT` | Déconnecter le client |
+| `CRC_FAIL_BAN` | Bannir le client (tampering détecté) |
+
+### Calcul CRC32
+
+Utilise le polynôme IEEE 802.3 (0xEDB88320) avec table de lookup précalculée :
+
+```c
+#include "crc32.h"
+
+// Calcul simple
+unsigned int crc = crc32_calculate(data, length);
+
+// Calcul incrémental (streaming)
+unsigned int crc = crc32_init();
+crc = crc32_update(crc, chunk1, len1);
+crc = crc32_update(crc, chunk2, len2);
+crc = crc32_finalize(crc);
+
+// Vérification
+int valid = crc32_verify(data, length, expected_crc);
+```
+
+### Statistiques de Paquets
+
+Le serveur peut monitorer les échecs CRC :
+
+```c
+PacketStats stats;
+packet_stats_init(&stats);
+
+// Après chaque réception
+packet_stats_update(&stats, result, crc_valid);
+
+// Afficher les stats
+packet_stats_print(&stats);
+// Output:
+// === Packet Statistics ===
+// Total packets: 1000
+// CRC failures: 5
+// Successful: 995
+// =========================
+```
+
 ## Streaming de Données
 
 Pour transférer de gros fichiers (images, binaires > 512 bytes) :
@@ -209,10 +297,22 @@ make
 Ce projet est **éducatif** et démontre :
 
 - ✅ Chiffrement XOR à 2 clés (éducatif, pas production)
+- ✅ **Intégrité CRC32** - Détection corruption/tampering
 - ✅ Détection anti-debug/anti-VM (9+6 techniques)
 - ✅ Trust factor et bannissement automatique
 - ✅ Communication binaire sans CRT
 - ✅ Streaming sécurisé avec validation de taille
+- ✅ Statistiques de paquets côté serveur
+
+### Protections Implémentées
+
+| Niveau | Protection | Implémentation |
+|--------|------------|----------------|
+| **Transport** | Intégrité | CRC32 (IEEE 802.3) |
+| **Application** | Chiffrement | XOR 2 clés alternées |
+| **Session** | Trust Factor | Score 0-100%, ban < 30% |
+| **Client** | Anti-debug | 9 techniques (PEB, timing, etc.) |
+| **Client** | Anti-VM | 6 techniques (CPUID, registre, etc.) |
 
 **Attention** : Ce code est destiné à l'apprentissage uniquement.
 
@@ -220,14 +320,16 @@ Ce projet est **éducatif** et démontre :
 
 ```
 tiny-loader/
-├── CMakeLists.txt        # Configuration CMake
-├── common.h              # Structures communes (legacy)
-├── packet.h              # Système de paquets binaires
-├── client_ext.h          # Extensions client (streaming, etc.)
-├── client.c              # Client Windows
-├── server.c              # Serveur Linux
-├── example_usage.c       # Exemples d'utilisation
-└── README.md             # Cette documentation
+├── CMakeLists.txt              # Configuration CMake
+├── common.h                    # Structures communes (legacy)
+├── crc32.h                     # Calcul CRC32 (IEEE 802.3)
+├── packet.h                    # Système de paquets binaires + CRC
+├── client_ext.h                # Extensions client (streaming, etc.)
+├── server_packet_handler.h     # Gestion serveur avec vérification CRC
+├── client.c                    # Client Windows
+├── server.c                    # Serveur Linux
+├── example_usage.c             # Exemples d'utilisation (11 exemples)
+└── README.md                   # Cette documentation
 ```
 
 ## Notes Techniques

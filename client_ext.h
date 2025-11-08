@@ -113,8 +113,8 @@ static inline int client_recv_packet(ExtendedClient* client, BinaryPacket* pkt) 
     unsigned short msg_len = (buffer[2] << 8) | buffer[3];
     if(msg_len > PACKET_MESSAGE_LEN) return 0;
 
-    // Read rest (session_id + message)
-    unsigned short rest_len = SESSION_ID_LEN + msg_len;
+    // Read rest (session_id + message + crc32)
+    unsigned short rest_len = SESSION_ID_LEN + msg_len + 4;  // +4 for CRC32
     if(recv_exact(client->socket_handle, buffer + 4, rest_len) <= 0) return 0;
 
     return packet_read(pkt, buffer, 4 + rest_len);

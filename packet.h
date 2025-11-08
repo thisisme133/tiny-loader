@@ -1,6 +1,8 @@
 #ifndef PACKET_H
 #define PACKET_H
 
+#include "crc32.h"
+
 // Packet types
 #define PKT_TYPE_WRITE 0
 #define PKT_TYPE_READ 1
@@ -41,12 +43,14 @@
 #define CHUNK_SIZE 4096
 
 // Binary packet structure (no JSON, just raw bytes)
+// Format over wire: [seq][id][message_len][session_id][message][crc32]
 typedef struct {
     unsigned char seq;
     unsigned char id;
     unsigned short message_len;
     char session_id[SESSION_ID_LEN + 1];
     unsigned char message[PACKET_MESSAGE_LEN];
+    unsigned int crc32;  // CRC32 of entire packet (calculated/verified on serialize/read)
 } BinaryPacket;
 
 // === ENCRYPTION WITH 2 KEYS (like enc.h) ===
@@ -141,9 +145,9 @@ static inline void packet_create_write(BinaryPacket* pkt, unsigned char id,
     encrypt_message(pkt->message, &pkt->message_len);
 }
 
-// Read packet (decrypts automatically)
+// Read packet (decrypts automatically, extracts CRC but doesn't verify on client)
 static inline int packet_read(BinaryPacket* pkt, const void* raw_data, unsigned short data_len) {
-    if (data_len < sizeof(unsigned char) * 2 + sizeof(unsigned short)) return 0;
+    if (data_len < sizeof(unsigned char) * 2 + sizeof(unsigned short) + 4) return 0;  // +4 for CRC
 
     const unsigned char* data = (const unsigned char*)raw_data;
     unsigned short offset = 0;
@@ -155,7 +159,7 @@ static inline int packet_read(BinaryPacket* pkt, const void* raw_data, unsigned 
     pkt->message_len = (data[offset] << 8) | data[offset + 1];
     offset += 2;
 
-    if (pkt->message_len > PACKET_MESSAGE_LEN || offset + pkt->message_len > data_len) {
+    if (pkt->message_len > PACKET_MESSAGE_LEN || offset + pkt->message_len + 4 > data_len) {
         return 0;
     }
 
@@ -170,6 +174,13 @@ static inline int packet_read(BinaryPacket* pkt, const void* raw_data, unsigned 
         pkt->message[i] = data[offset++];
     }
 
+    // Read CRC32 (4 bytes, big endian)
+    pkt->crc32 = ((unsigned int)data[offset] << 24) |
+                 ((unsigned int)data[offset + 1] << 16) |
+                 ((unsigned int)data[offset + 2] << 8) |
+                 ((unsigned int)data[offset + 3]);
+    offset += 4;
+
     // Decrypt
     decrypt_message(pkt->message, &pkt->message_len);
 
@@ -177,7 +188,26 @@ static inline int packet_read(BinaryPacket* pkt, const void* raw_data, unsigned 
     return 1;
 }
 
-// Serialize packet for transmission (returns total size)
+// Verify packet CRC32 (server-side only)
+// Returns 1 if CRC is valid, 0 if invalid
+static inline int packet_verify_crc(const void* raw_data, unsigned short data_len) {
+    if (data_len < 4) return 0;
+
+    const unsigned char* data = (const unsigned char*)raw_data;
+
+    // Extract CRC from end of packet
+    unsigned int received_crc = ((unsigned int)data[data_len - 4] << 24) |
+                                ((unsigned int)data[data_len - 3] << 16) |
+                                ((unsigned int)data[data_len - 2] << 8) |
+                                ((unsigned int)data[data_len - 1]);
+
+    // Calculate CRC of packet content (excluding the CRC field itself)
+    unsigned int calculated_crc = crc32_calculate(data, data_len - 4);
+
+    return (received_crc == calculated_crc);
+}
+
+// Serialize packet for transmission (returns total size including CRC)
 static inline unsigned short packet_serialize(const BinaryPacket* pkt, unsigned char* out_buffer) {
     unsigned short offset = 0;
 
@@ -197,6 +227,15 @@ static inline unsigned short packet_serialize(const BinaryPacket* pkt, unsigned 
     for(unsigned short i = 0; i < pkt->message_len; i++) {
         out_buffer[offset++] = pkt->message[i];
     }
+
+    // Calculate CRC32 of entire packet content (before CRC field)
+    unsigned int crc = crc32_calculate(out_buffer, offset);
+
+    // Append CRC32 (4 bytes, big endian)
+    out_buffer[offset++] = (crc >> 24) & 0xFF;
+    out_buffer[offset++] = (crc >> 16) & 0xFF;
+    out_buffer[offset++] = (crc >> 8) & 0xFF;
+    out_buffer[offset++] = crc & 0xFF;
 
     return offset;
 }
