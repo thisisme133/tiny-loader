@@ -25,3 +25,22 @@ if(WIN32)
     # Options de compilation pour éviter les warnings
     target_compile_options(client PRIVATE /W3)
 endif()
+
+# === SERVEUR (Linux/Unix) ===
+# Compile uniquement sur les plateformes Unix-like
+if(UNIX)
+    add_executable(server
+        server.c
+    )
+
+    # Inclut le dossier courant pour accéder à common.h
+    target_include_directories(server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+    # Bibliothèques Linux requises
+    target_link_libraries(server
+        pthread     # POSIX threads
+    )
+
+    # Options de compilation
+    target_compile_options(server PRIVATE -Wall -Wextra)
+endif()

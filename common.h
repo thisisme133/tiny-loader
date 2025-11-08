@@ -1,10 +1,16 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+// Platform-specific includes
+#ifdef __linux__
+#include <sys/mman.h>
+#endif
+
 // Configuration
 #define PORT 8888
 #define KEY_SIZE 32
 #define MAX_PAYLOAD 65000
+#define HEARTBEAT_TIMEOUT 15  // seconds
 
 // Packet types
 #define PKT_HELLO 0x01
@@ -19,6 +25,7 @@ typedef struct {
     void* socket;
     unsigned char key[KEY_SIZE];
     unsigned char active;
+    unsigned long long last_heartbeat;  // For server-side timeout monitoring
 } Session;
 
 typedef struct {
