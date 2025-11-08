@@ -13,7 +13,15 @@ add_executable(client
 # Inclut le dossier courant pour accéder à common.h
 target_include_directories(client PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Si tu utilises des sockets sous Windows
+# Bibliothèques Windows requises
 if(WIN32)
-    target_link_libraries(client ws2_32)
+    target_link_libraries(client
+        ws2_32      # Winsock
+        ntdll       # NT API
+        advapi32    # Registry & Security
+        tlhelp32    # Toolhelp (Process enumeration)
+    )
+
+    # Options de compilation pour éviter les warnings
+    target_compile_options(client PRIVATE /W3)
 endif()
