@@ -30,7 +30,9 @@ static ID3D11RenderTargetView* g_pmain_render_target_view{ nullptr };
 static std::vector<game_info_t> g_game_list{ };
 static std::mutex g_game_list_mutex{ };
 static std::atomic<bool> g_connected{ false };
+static std::atomic<bool> g_connecting{ false };
 static session_t* g_session{ nullptr };
+static int g_selected_game_id{ -1 };
 
 /*
    forward declarations
@@ -147,6 +149,15 @@ auto cleanup_render_target( ) -> void
  */
 auto network_thread( ) -> void
 {
+	/*
+	   prevent multiple connections
+	*/
+	bool expected{ false };
+	if ( !g_connecting.compare_exchange_strong( expected, true ) )
+	{
+		return; // already connecting or connected
+	}
+
 	WSADATA wsa{ };
 	WSAStartup( MAKEWORD( 2, 2 ), &wsa );
 
@@ -162,6 +173,7 @@ auto network_thread( ) -> void
 
 	if ( connect( sock, reinterpret_cast<sockaddr*>( &addr ), sizeof( addr ) ) < 0 )
 	{
+		g_connecting = false;
 		WSACleanup( );
 		return;
 	}
@@ -175,6 +187,7 @@ auto network_thread( ) -> void
 	if ( !g_session->receive_key( ) )
 	{
 		g_connected = false;
+		g_connecting = false;
 		delete g_session;
 		g_session = nullptr;
 		WSACleanup( );
@@ -222,6 +235,7 @@ auto network_thread( ) -> void
 		std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
 	}
 
+	g_connecting = false;
 	delete g_session;
 	g_session = nullptr;
 	WSACleanup( );
@@ -369,28 +383,44 @@ auto main( ) -> int
 		ImGui::NewFrame( );
 
 		/*
-		   create fullscreen window
+		   create main window (movable, no resize)
 		*/
-		ImGui::SetNextWindowPos( ImVec2{ 0, 0 } );
+		ImGui::SetNextWindowPos( ImVec2{ 0, 0 }, ImGuiCond_FirstUseEver );
 		ImGui::SetNextWindowSize( ImVec2{ 200, 200 } );
 		ImGui::Begin(
 			"##main",
 			nullptr,
-			ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse );
+			ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse );
 
 		if ( !g_connected )
 		{
-			ImGui::Text( "Connecting..." );
+			/*
+			   center "Connecting..." text
+			*/
+			const char* text{ "Connecting..." };
+			float text_width{ ImGui::CalcTextSize( text ).x };
+			ImGui::SetCursorPosX( ( 200.0f - text_width ) * 0.5f );
+			ImGui::SetCursorPosY( 100.0f - ImGui::GetTextLineHeight( ) * 0.5f );
+			ImGui::Text( "%s", text );
 		}
 		else
 		{
-			ImGui::Text( "Game List" );
+			/*
+			   center "Game List" title
+			*/
+			const char* title{ "Game List" };
+			float title_width{ ImGui::CalcTextSize( title ).x };
+			ImGui::SetCursorPosX( ( 200.0f - title_width ) * 0.5f );
+			ImGui::Text( "%s", title );
 			ImGui::Separator( );
 
 			/*
-			   display game list table
+			   display game list table (centered)
 			*/
-			if ( ImGui::BeginTable( "games", 1, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg ) )
+			float table_width{ 180.0f };
+			ImGui::SetCursorPosX( ( 200.0f - table_width ) * 0.5f );
+
+			if ( ImGui::BeginTable( "games", 1, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg, ImVec2{ table_width, 0 } ) )
 			{
 				std::lock_guard<std::mutex> lock{ g_game_list_mutex };
 
@@ -409,19 +439,16 @@ auto main( ) -> int
 					if ( disabled )
 						ImGui::PushStyleVar( ImGuiStyleVar_Alpha, 0.5f );
 
-					bool selected{ false };
+					bool is_selected{ g_selected_game_id == static_cast<int>( i ) };
 
-					if ( ImGui::Selectable( game.name.c_str( ), &selected, disabled ? ImGuiSelectableFlags_Disabled : 0 ) )
+					if ( ImGui::Selectable( game.name.c_str( ), is_selected, disabled ? ImGuiSelectableFlags_Disabled : 0 ) )
 					{
 						/*
-						   send game request on double click
+						   single click to select
 						*/
-						if ( ImGui::IsMouseDoubleClicked( 0 ) && g_session )
+						if ( !disabled )
 						{
-							packet_t request{ };
-							request << static_cast<uint8_t>( opcode_t::GAME_REQUEST );
-							request << static_cast<uint8_t>( i );
-							g_session->send( request );
+							g_selected_game_id = static_cast<int>( i );
 						}
 					}
 
@@ -430,6 +457,28 @@ auto main( ) -> int
 				}
 
 				ImGui::EndTable( );
+			}
+
+			/*
+			   show "Load" button if a game is selected
+			*/
+			if ( g_selected_game_id >= 0 && g_selected_game_id < static_cast<int>( g_game_list.size( ) ) )
+			{
+				ImGui::Spacing( );
+
+				/*
+				   center "Load" button
+				*/
+				float button_width{ 60.0f };
+				ImGui::SetCursorPosX( ( 200.0f - button_width ) * 0.5f );
+
+				if ( ImGui::Button( "Load", ImVec2{ button_width, 0 } ) && g_session )
+				{
+					packet_t request{ };
+					request << static_cast<uint8_t>( opcode_t::GAME_REQUEST );
+					request << static_cast<uint8_t>( g_selected_game_id );
+					g_session->send( request );
+				}
 			}
 		}
 

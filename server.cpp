@@ -30,16 +30,19 @@ auto handle_client( socket_t client_sock ) -> void
 	std::cout << "[+] Session key sent\n";
 
 	/*
+	   game list (used for validation)
+	*/
+	std::vector<game_info_t> games{
+		{ "Counter-Strike 2", game_status_t::ONLINE, "cs2.exe" },
+		{ "League of Legends", game_status_t::ONLINE, "league.exe" },
+		{ "Valorant", game_status_t::MAINTENANCE, "valorant.exe" },
+		{ "Apex Legends", game_status_t::OFFLINE, "apex.exe" },
+		{ "Fortnite", game_status_t::ONLINE, "fortnite.exe" } };
+
+	/*
 	   send game list
 	*/
 	{
-		std::vector<game_info_t> games{
-			{ "Counter-Strike 2", game_status_t::ONLINE, "cs2.exe" },
-			{ "League of Legends", game_status_t::ONLINE, "league.exe" },
-			{ "Valorant", game_status_t::MAINTENANCE, "valorant.exe" },
-			{ "Apex Legends", game_status_t::OFFLINE, "apex.exe" },
-			{ "Fortnite", game_status_t::ONLINE, "fortnite.exe" } };
-
 		packet_t game_list_pkt{ };
 		game_list_pkt << static_cast<uint8_t>( opcode_t::GAME_LIST );
 		game_list_pkt << static_cast<uint8_t>( games.size( ) );
@@ -118,6 +121,23 @@ auto handle_client( socket_t client_sock ) -> void
 				uint8_t game_id{ };
 				pkt >> game_id;
 				std::cout << "[GAME_REQUEST] Client requested game ID: " << static_cast<int>( game_id ) << "\n";
+
+				/*
+				   validate game_id and status
+				*/
+				if ( game_id >= games.size( ) )
+				{
+					std::cout << "[!] Invalid game ID - disconnecting client (possible hack attempt)\n";
+					return;
+				}
+
+				if ( games[ game_id ].status != game_status_t::ONLINE )
+				{
+					std::cout << "[!] Game not ONLINE - disconnecting client (possible hack attempt)\n";
+					return;
+				}
+
+				std::cout << "[+] Valid request for: " << games[ game_id ].name << "\n";
 				break;
 			}
 
