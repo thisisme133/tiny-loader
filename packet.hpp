@@ -2,70 +2,138 @@
 #include <vector>
 #include <cstring>
 #include <stdexcept>
+#include <string>
+#include <cstdint>
 
-// Packet style SFML - ultra simple !
-class Packet {
+/**
+ * @brief binary packet for network communication
+ */
+class packet_t
+{
 public:
-    // Écrire des données
-    template<typename T>
-    Packet& operator<<(const T& data) {
-        const char* bytes = reinterpret_cast<const char*>(&data);
-        buffer_.insert(buffer_.end(), bytes, bytes + sizeof(T));
-        return *this;
-    }
+	/**
+	 * @brief write typed data to packet
+	 * @tparam T data type
+	 * @param data data to write
+	 * @return reference to this packet
+	 */
+	template<typename T>
+	auto operator<<( const T& data ) -> packet_t&
+	{
+		const char* bytes{ reinterpret_cast<const char*>( &data ) };
+		m_buffer.insert( m_buffer.end( ), bytes, bytes + sizeof( T ) );
+		return *this;
+	}
 
-    // Lire des données
-    template<typename T>
-    Packet& operator>>(T& data) {
-        if (pos_ + sizeof(T) > buffer_.size())
-            throw std::runtime_error("Packet read overflow");
+	/**
+	 * @brief read typed data from packet
+	 * @tparam T data type
+	 * @param data output variable
+	 * @return reference to this packet
+	 */
+	template<typename T>
+	auto operator>>( T& data ) -> packet_t&
+	{
+		if ( m_pos + sizeof( T ) > m_buffer.size( ) )
+		{
+			throw std::runtime_error{ "Packet read overflow" };
+		}
 
-        std::memcpy(&data, buffer_.data() + pos_, sizeof(T));
-        pos_ += sizeof(T);
-        return *this;
-    }
+		std::memcpy( &data, m_buffer.data( ) + m_pos, sizeof( T ) );
+		m_pos += sizeof( T );
+		return *this;
+	}
 
-    // Écrire un string
-    Packet& operator<<(const std::string& str) {
-        uint32_t size = str.size();
-        *this << size;
-        buffer_.insert(buffer_.end(), str.begin(), str.end());
-        return *this;
-    }
+	/**
+	 * @brief write string to packet
+	 * @param str string to write
+	 * @return reference to this packet
+	 */
+	auto operator<<( const std::string& str ) -> packet_t&
+	{
+		uint32_t size{ static_cast<uint32_t>( str.size( ) ) };
+		*this << size;
+		m_buffer.insert( m_buffer.end( ), str.begin( ), str.end( ) );
+		return *this;
+	}
 
-    // Lire un string
-    Packet& operator>>(std::string& str) {
-        uint32_t size;
-        *this >> size;
-        if (pos_ + size > buffer_.size())
-            throw std::runtime_error("Packet read overflow");
+	/**
+	 * @brief read string from packet
+	 * @param str output string
+	 * @return reference to this packet
+	 */
+	auto operator>>( std::string& str ) -> packet_t&
+	{
+		uint32_t size{ };
+		*this >> size;
 
-        str.assign(buffer_.begin() + pos_, buffer_.begin() + pos_ + size);
-        pos_ += size;
-        return *this;
-    }
+		if ( m_pos + size > m_buffer.size( ) )
+		{
+			throw std::runtime_error{ "Packet read overflow" };
+		}
 
-    // Accès direct au buffer
-    const std::vector<char>& data() const { return buffer_; }
-    std::vector<char>& data() { return buffer_; }
+		str.assign( m_buffer.begin( ) + m_pos, m_buffer.begin( ) + m_pos + size );
+		m_pos += size;
+		return *this;
+	}
 
-    // Taille
-    size_t size() const { return buffer_.size(); }
+	/**
+	 * @brief get const buffer
+	 * @return const reference to buffer
+	 */
+	auto data( ) const -> const std::vector<char>&
+	{
+		return m_buffer;
+	}
 
-    // Clear
-    void clear() { buffer_.clear(); pos_ = 0; }
+	/**
+	 * @brief get mutable buffer
+	 * @return reference to buffer
+	 */
+	auto data( ) -> std::vector<char>&
+	{
+		return m_buffer;
+	}
 
-    // Reset lecture
-    void reset() { pos_ = 0; }
+	/**
+	 * @brief get packet size
+	 * @return size in bytes
+	 */
+	auto size( ) const -> size_t
+	{
+		return m_buffer.size( );
+	}
 
-    // Encryption XOR simple
-    void encrypt(const std::vector<char>& key) {
-        for (size_t i = 0; i < buffer_.size(); i++) {
-            buffer_[i] ^= key[i % key.size()];
-        }
-    }
+	/**
+	 * @brief clear packet data
+	 */
+	auto clear( ) -> void
+	{
+		m_buffer.clear( );
+		m_pos = 0;
+	}
+
+	/**
+	 * @brief reset read position
+	 */
+	auto reset( ) -> void
+	{
+		m_pos = 0;
+	}
+
+	/**
+	 * @brief encrypt packet with XOR
+	 * @param key encryption key
+	 */
+	auto encrypt( const std::vector<char>& key ) -> void
+	{
+		for ( size_t i{ 0 }; i < m_buffer.size( ); ++i )
+		{
+			m_buffer[i] ^= key[i % key.size( )];
+		}
+	}
 
 private:
-    std::vector<char> buffer_;
-    size_t pos_ = 0;
+	std::vector<char> m_buffer{ };
+	size_t m_pos{ 0 };
 };
