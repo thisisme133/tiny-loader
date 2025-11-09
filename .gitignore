@@ -1,0 +1,15 @@
+imgui/
+build/
+*.exe
+*.obj
+*.o
+*.lib
+*.a
+*.so
+*.dll
+.vs/
+.vscode/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile

@@ -1,4 +1,5 @@
 #include "session.hpp"
+#include "opcodes.hpp"
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -27,6 +28,32 @@ auto handle_client( socket_t client_sock ) -> void
 	}
 
 	std::cout << "[+] Session key sent\n";
+
+	/*
+	   send game list
+	*/
+	{
+		std::vector<game_info_t> games{
+			{ "Counter-Strike 2", game_status_t::ONLINE, "cs2.exe" },
+			{ "League of Legends", game_status_t::ONLINE, "league.exe" },
+			{ "Valorant", game_status_t::MAINTENANCE, "valorant.exe" },
+			{ "Apex Legends", game_status_t::OFFLINE, "apex.exe" },
+			{ "Fortnite", game_status_t::ONLINE, "fortnite.exe" } };
+
+		packet_t game_list_pkt{ };
+		game_list_pkt << static_cast<uint8_t>( opcode_t::GAME_LIST );
+		game_list_pkt << static_cast<uint8_t>( games.size( ) );
+
+		for ( const auto& game : games )
+		{
+			game_list_pkt << game.name;
+			game_list_pkt << static_cast<uint8_t>( game.status );
+			game_list_pkt << game.process_name;
+		}
+
+		session.send( game_list_pkt );
+		std::cout << "[+] Game list sent (" << games.size( ) << " games)\n";
+	}
 
 	/*
 	   receive and process packets
@@ -83,6 +110,14 @@ auto handle_client( socket_t client_sock ) -> void
 				response << static_cast<uint8_t>( 3 );
 				response << static_cast<uint32_t>( value * 2 );
 				session.send( response );
+				break;
+			}
+
+			case 4: // GAME_REQUEST
+			{
+				uint8_t game_id{ };
+				pkt >> game_id;
+				std::cout << "[GAME_REQUEST] Client requested game ID: " << static_cast<int>( game_id ) << "\n";
 				break;
 			}
 
