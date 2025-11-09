@@ -30,12 +30,7 @@ auto main( ) -> int
 	sockaddr_in addr{ };
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons( 8888 );
-
-#ifdef _WIN32
 	addr.sin_addr.s_addr = inet_addr( "127.0.0.1" );
-#else
-	inet_pton( AF_INET, "127.0.0.1", &addr.sin_addr );
-#endif
 
 	std::cout << "[*] Connecting to server...\n";
 
